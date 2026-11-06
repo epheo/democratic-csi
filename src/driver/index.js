@@ -2585,6 +2585,23 @@ class CsiBaseDriver {
           }
         }
 
+        // refuse while the staging mount is still there, so a retry still
+        // finds the device to detach; skip the staging mount itself, also seen
+        // through the host root (/host) in the node container
+        if (is_block) {
+          const others = (
+            await mount.getDeviceMounts(block_device_info.path)
+          ).filesystems
+            .map((f) => f.target)
+            .filter((t) => !t.endsWith(normalized_staging_path));
+          if (others.length > 0) {
+            throw new GrpcError(
+              grpc.status.FAILED_PRECONDITION,
+              `${block_device_info.path} is still mounted at ${others.join(", ")}, not detaching it`
+            );
+          }
+        }
+
         result = await mount.pathIsMounted(normalized_staging_path);
         if (result) {
           try {
@@ -2630,8 +2647,8 @@ class CsiBaseDriver {
         }
 
         // logging out of iscsi under a mounted filesystem shuts it down and
-        // loses unwritten data: check the staging path is gone and that no
-        // other mount (a leftover publish, a manual mount) still uses the device
+        // loses unwritten data: last check that the staging path is gone and
+        // that no mount appeared since the check above
         if (await mount.pathIsMounted(normalized_staging_path)) {
           throw new GrpcError(
             grpc.status.INTERNAL,
