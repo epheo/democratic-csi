@@ -37,6 +37,9 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -77,3 +80,22 @@ jobs:
           cache-to: type=gha,mode=max
       - if: github.event_name == 'push'
         run: echo "pin as ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
+
+  # a GitHub release per versioned image; its tag, made with GITHUB_TOKEN, starts no new run
+  release:
+    needs: image
+    if: needs.image.outputs.tag != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.image.outputs.tag }}
+      IMAGE: ghcr.io/${{ github.repository }}
+      DIGEST: ${{ needs.image.outputs.digest }}
+    steps:
+      - run: |
+          gh release view "$TAG" >/dev/null 2>&1 && exit 0
+          gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" --generate-notes \
+            --notes "$(printf 'Image: `%s`\n\nPin by digest: `%s`\n' "$IMAGE:$TAG" "$IMAGE@$DIGEST")"
