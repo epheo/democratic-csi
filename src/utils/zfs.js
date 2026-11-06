@@ -1600,17 +1600,25 @@ class Zetabyte {
         stderr = stderr + data;
       });
 
-      child.on("close", function (error) {
+      child.on("close", function (code, signal) {
         if (timeout) {
           clearTimeout(timeout);
         }
-        if (error) {
-          if (didTimeout) {
-            error.killed = true;
-          }
-          callback(zb.helpers.zfsError(error, stderr), stdout, stderr);
+        if (code === 0) {
+          callback(null, stdout, stderr);
+          return;
         }
-        callback(null, stdout, stderr);
+        // ssh2 closes with an undefined code when the connection drops and a
+        // null code when the command dies from a signal: output may be cut
+        // short, so neither is success
+        const error = { code, signal, killed: didTimeout };
+        if (!stderr) {
+          error.message =
+            code == null
+              ? `command ended without exit status (signal: ${signal}), connection lost?`
+              : `command exited with code ${code}`;
+        }
+        callback(zb.helpers.zfsError(error, stderr), stdout, stderr);
       });
     }
 
