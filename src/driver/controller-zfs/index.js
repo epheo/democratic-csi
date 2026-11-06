@@ -813,7 +813,11 @@ class ControllerZfsBaseDriver extends CsiBaseDriver {
 
     // ensure volumes with the same name being requested a 2nd time but with a different size fails
     try {
-      let properties = await zb.zfs.get(datasetName, ["volsize", "refquota"]);
+      let properties = await zb.zfs.get(datasetName, [
+        "volsize",
+        "refquota",
+        SUCCESS_PROPERTY_NAME,
+      ]);
       properties = properties[datasetName];
       let size;
       switch (driverZfsResourceType) {
@@ -839,6 +843,13 @@ class ControllerZfsBaseDriver extends CsiBaseDriver {
         driverOptions.zfs.datasetEnableQuotas
       ) {
         check = true;
+      }
+
+      // left half-provisioned by a failed attempt (a clone not yet resized, a
+      // quota not yet set): the steps below are idempotent and finish it;
+      // comparing its size would fail every retry with ALREADY_EXISTS
+      if (properties[SUCCESS_PROPERTY_NAME].value != "true") {
+        check = false;
       }
 
       if (check) {
