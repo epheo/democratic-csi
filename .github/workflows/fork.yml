@@ -9,6 +9,19 @@ on:
   push:
     branches: [master]
     tags: ["v*"]
+    # What .dockerignore lets into the image: any other change would publish a
+    # new version of the same image, and Renovate would roll it out.
+    # (Ignored for tag pushes.)
+    paths:
+      - bin/**
+      - csi_proto/**
+      - csi_proxy_proto/**
+      - docker/**
+      - LICENSE
+      - package*.json
+      - src/**
+      - Dockerfile
+      - .dockerignore
   # upstream-sync.yml runs CI on its branches this way
   workflow_dispatch:
 
