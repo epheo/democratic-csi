@@ -1,4 +1,4 @@
-#!/usr/bin/env -S node --nouse-idle-notification --expose-gc
+#!/usr/bin/env -S node --expose-gc
 
 const { grpc } = require("../src/utils/grpc");
 

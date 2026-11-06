@@ -101,6 +101,9 @@ jobs:
         run: |
           docker run --rm "$IMAGE" --version
           docker run --rm --entrypoint sh "$IMAGE" -c 'for t in mkfs.xfs mkfs.ext4 xfs_growfs resize2fs mount.nfs blkid lsblk findmnt; do command -v $t >/dev/null || { echo "missing $t"; exit 1; }; done'
+          # kubelet runs bin/liveness-probe through its shebang; node drops flags across majors
+          docker run --rm --entrypoint sh "$IMAGE" -c 'for f in bin/*; do flags=$(sed -n "1s|^#!/usr/bin/env -S node||p" "$f"); [ -n "$flags" ] || continue; eval "node $flags -e 0" || { echo "$f: node rejects$flags"; exit 1; }; done'
+          docker run --rm --entrypoint bin/liveness-probe "$IMAGE" --help >/dev/null
       - if: github.event_name == 'push'
         run: echo "pin as ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
 
