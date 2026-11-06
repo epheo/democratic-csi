@@ -69,6 +69,8 @@ root = api("GET", "user?username=root")[0]
 api("PUT", f"user/id/{root['id']}", {"sshpubkey": open(pubkey_file).read().strip()})
 api("PUT", "ssh", {"rootlogin": True, "passwordauth": True})
 service("ssh")
+# production mounts with nfsvers=4; v3 would need rpc.statd in the node plugin
+api("PUT", "nfs", {"v4": True})
 service("nfs")
 
 # the ci/configs templates use portal group 1 and initiator group 1

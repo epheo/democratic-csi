@@ -6,7 +6,7 @@ Runs the controller from a source tree or an image, on this host; no Kubernetes 
 ## Needs
 
 - libvirt with `qemu:///system`, its `default` network and pool, `virt-install`
-- 8 GiB of RAM free for the VM
+- 6 GiB of RAM free for the TrueNAS VM, 3 GiB more for the node VM
 - python3, node and `npm ci` in the repo root
 - `csi-sanity` in PATH or `CSI_SANITY`:
   `go install github.com/kubernetes-csi/csi-test/v5/cmd/csi-sanity@latest`
@@ -38,6 +38,23 @@ virsh shutdown truenas-csi-test
 
 To test another ref without a checkout: `git archive <ref> | tar -x -C <dir>`, then pass `<dir>`.
 Expect csi-sanity: 42 passed, node specs skipped.
+
+## Node VM
+
+csi-sanity's node specs (stage, publish, expand, unstage) need root, iscsid and real mounts.
+`node-create.sh` builds `csi-node-test`: CentOS Stream 10 cloud image (el10 kernel, like SCOS 10 nodes), iscsid, nfs-utils, podman, 3 GiB.
+The node plugin runs there privileged, with the host mounts of the node DaemonSet; csi-sanity runs there too.
+
+```sh
+hack/truenas-vm/node-create.sh                    # once; needs setup.sh's ssh key
+virsh start truenas-csi-test; virsh start csi-node-test
+hack/truenas-vm/node-sanity.sh ghcr.io/epheo/democratic-csi:master iscsi
+hack/truenas-vm/node-sanity.sh localhost/dcsi:test nfs   # local images are copied over
+hack/truenas-vm/node-clean.sh                     # leftover mounts and sessions
+```
+
+Expect 65 (iscsi) and 61 (nfs) passed.
+Skipped: the two specs upstream skips on CORE, and a second publish of a single-writer volume, which the driver does not refuse.
 
 ## Gotchas
 

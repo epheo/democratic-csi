@@ -26,7 +26,7 @@ fi
 [ -f "$STATE/root-password" ] || (umask 077; python3 -c 'import secrets, string
 print("".join(secrets.choice(string.ascii_lowercase + string.digits) for _ in range(16)))' > "$STATE/root-password")
 
-virt-install --name "$VM" --memory 8192 --vcpus 4 --cpu host-passthrough --osinfo freebsd13.3 \
+virt-install --name "$VM" --memory 6144 --vcpus 4 --cpu host-passthrough --osinfo freebsd13.3 \
   --disk vol="$POOL/$VM-boot.qcow2",bus=virtio \
   --disk vol="$POOL/$VM-data.qcow2",bus=virtio,serial=csidata0 \
   --cdrom "$(virsh vol-path --pool "$POOL" "$ISO")" \
