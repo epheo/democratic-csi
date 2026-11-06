@@ -500,8 +500,10 @@ class FreeNASSshDriver extends ControllerZfsBaseDriver {
                     (JSON.stringify(response.body).includes(
                       "You can't share same filesystem with all hosts twice."
                     ) ||
+                      // 13.x ends it with "some network", or with the host or
+                      // network when the share sets shareAllowedHosts/Networks
                       JSON.stringify(response.body).includes(
-                        "Another NFS share already exports this dataset for some network"
+                        "Another NFS share already exports this dataset for"
                       ))
                   ) {
                     let lookupShare = await this.findResourceByProperties(
