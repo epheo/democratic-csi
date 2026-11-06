@@ -462,7 +462,9 @@ const signalMapping = {
   31: "SIGUSR2",
 };
 
-[(`SIGINT`, `SIGUSR1`, `SIGUSR2`, `uncaughtException`, `SIGTERM`)].forEach(
+// crashes are left to node (stack trace, exit 1): awaiting in-flight calls
+// after an uncaught exception can hang a process in an undefined state
+[`SIGINT`, `SIGTERM`].forEach(
   (eventType) => {
     process.on(eventType, async (code) => {
       let codeNumber = null;
