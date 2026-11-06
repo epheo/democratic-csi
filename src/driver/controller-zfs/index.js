@@ -1815,7 +1815,7 @@ class ControllerZfsBaseDriver extends CsiBaseDriver {
       if (entries) {
         entries_length = entries.length;
         entries = entries.slice(start_position, end_position);
-        if (max_entries > 0 && end_position > entries_length) {
+        if (max_entries > 0 && end_position < entries_length) {
           next_token = `${uuid}:${end_position}`;
         } else {
           next_token = null;
@@ -1960,7 +1960,7 @@ class ControllerZfsBaseDriver extends CsiBaseDriver {
       if (entries) {
         entries_length = entries.length;
         entries = entries.slice(start_position, end_position);
-        if (max_entries > 0 && end_position > entries_length) {
+        if (max_entries > 0 && end_position < entries_length) {
           next_token = `${uuid}:${end_position}`;
         } else {
           next_token = null;
