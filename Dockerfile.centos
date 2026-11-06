@@ -1,0 +1,101 @@
+# Fork image on CentOS Stream 10, the userspace of the SCOS 10 nodes: mkfs and
+# friends then use the defaults the node kernel was built for (xfsprogs 7.x
+# elsewhere turns on parent pointers and exchange-range, which el10 leaves off).
+# AlmaLinux 10 builds too (BASE=docker.io/library/almalinux:10-minimal) and,
+# unlike Stream, has errata that scanners can match.
+# Upstream's Dockerfile stays untouched so syncs never conflict: mirror its
+# package list, tool installers and docker/ wrappers here by hand.
+ARG BASE=quay.io/centos/centos:stream10-minimal
+
+######################
+# node and app
+######################
+FROM ${BASE} AS build
+
+ARG NODE_VERSION=v24.22.2
+RUN microdnf -y install tar xz && microdnf clean all
+RUN set -e; \
+  case "$(uname -m)" in x86_64) arch=x64 ;; aarch64) arch=arm64 ;; *) echo "unsupported $(uname -m)"; exit 1 ;; esac; \
+  f="node-${NODE_VERSION}-linux-${arch}.tar.xz"; \
+  cd /tmp && curl -fsSLO "https://nodejs.org/dist/${NODE_VERSION}/${f}" \
+  && curl -fsSL "https://nodejs.org/dist/${NODE_VERSION}/SHASUMS256.txt" | grep " ${f}\$" | sha256sum -c - \
+  && mkdir -p /usr/local/lib/nodejs && tar -xJf "${f}" -C /usr/local/lib/nodejs --strip-components=1 && rm "${f}"
+ENV PATH=/usr/local/lib/nodejs/bin:$PATH
+
+WORKDIR /home/csi/app
+ENV NODE_ENV=production
+COPY package*.json ./
+# re2 fetches its prebuilt binary from GitHub; no compiler in this stage
+RUN npm ci --omit=dev --no-audit --no-fund
+COPY . .
+RUN rm -rf docker
+
+######################
+# bundled tools, used by other drivers (snapshots of client drivers, containerd-oci)
+######################
+FROM ${BASE} AS tools
+ARG TARGETPLATFORM
+RUN microdnf -y install wget unzip bzip2 tar gzip && microdnf clean all
+
+ARG RCLONE_VERSION=1.75.2
+ADD docker/rclone-installer.sh /usr/local/sbin
+RUN bash /usr/local/sbin/rclone-installer.sh
+
+ARG RESTIC_VERSION=0.19.1
+ADD docker/restic-installer.sh /usr/local/sbin
+RUN bash /usr/local/sbin/restic-installer.sh && chmod +x /usr/local/bin/restic
+
+# upstream's installer uses the .deb
+ARG KOPIA_VERSION=0.23.1
+RUN set -e; \
+  case "$(uname -m)" in x86_64) arch=x64 ;; aarch64) arch=arm64 ;; *) exit 0 ;; esac; \
+  wget -qO- "https://github.com/kopia/kopia/releases/download/v${KOPIA_VERSION}/kopia-${KOPIA_VERSION}-linux-${arch}.tar.gz" \
+  | tar -xz -C /usr/local/bin --strip-components=1 "kopia-${KOPIA_VERSION}-linux-${arch}/kopia"
+
+ARG YQ_VERSION=v4.54.2
+ADD docker/yq-installer.sh /usr/local/sbin
+RUN bash /usr/local/sbin/yq-installer.sh
+
+# patched build published by upstream; only v2.0.4 exists
+ARG CTR_VERSION=v2.0.4
+ADD docker/ctr-installer.sh /usr/local/sbin
+RUN bash /usr/local/sbin/ctr-installer.sh
+
+######################
+# actual image
+######################
+FROM ${BASE}
+
+ENV DEMOCRATIC_CSI_IS_CONTAINER=true
+ENV NODE_ENV=production
+ENV LANG=C.UTF-8
+
+# btrfs-progs, ntfs-3g and gdisk come from EPEL; fatresize has no el10 package
+RUN microdnf -y install epel-release \
+  && microdnf -y --setopt=install_weak_deps=0 install \
+  wget zip bzip2 socat sudo rsync procps-ng util-linux findutils grep \
+  e2fsprogs xfsprogs btrfs-progs dosfstools exfatprogs ntfs-3g ntfsprogs gdisk cloud-utils-growpart \
+  nfs-utils cifs-utils nvme-cli fuse3 \
+  && microdnf clean all
+
+RUN mkdir -p /etc/nvme && \
+  echo '83e7a026-2564-455b-ada6-ddbdaf0bc519' > /etc/nvme/hostid && \
+  echo 'nqn.2014-08.org.nvmexpress:uuid:941e4f03-2cd6-435e-86df-731b1c573d86' > /etc/nvme/hostnqn
+
+COPY --from=build /usr/local/lib/nodejs/bin/node /usr/local/bin/node
+COPY --from=tools /usr/local/bin/ /usr/local/bin/
+
+ADD docker/iscsiadm /usr/local/sbin
+ADD docker/multipath /usr/local/sbin
+ADD docker/mount /usr/local/bin/mount
+ADD docker/umount /usr/local/bin/umount
+ADD docker/zfs /usr/local/bin/zfs
+ADD docker/zpool /usr/local/bin/zpool
+ADD docker/oneclient /usr/local/bin/oneclient
+RUN chown -R root:root /usr/local/bin/* /usr/local/sbin/* && chmod +x /usr/local/bin/* /usr/local/sbin/*
+
+COPY --from=build /home/csi/app /home/csi/app
+WORKDIR /home/csi/app
+
+EXPOSE 50051
+ENTRYPOINT [ "bin/democratic-csi" ]
