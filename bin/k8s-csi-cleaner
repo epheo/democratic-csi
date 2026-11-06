@@ -1,4 +1,4 @@
-#!/usr/bin/env -S node --nouse-idle-notification --expose-gc
+#!/usr/bin/env -S node --expose-gc
 
 /**
  * The purpose of this script is to prune volumes in the storage system which
