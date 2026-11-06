@@ -1,4 +1,5 @@
 # Opens a PR merging each new upstream release tag into the fork.
+# A conflict opens an issue instead.
 # Merge, not rebase: master is shared history, and image tags count its commits.
 name: upstream sync
 
@@ -37,7 +38,9 @@ jobs:
           # One try per release: delete the branch, or close the issue, to retry.
           branch="upstream/$latest"
           git ls-remote --exit-code --heads origin "$branch" >/dev/null && exit 0
-          [ "$(gh issue list --state open --search "\"upstream $latest\" in:title" --json number --jq length)" != 0 ] && exit 0
+          # Its own line: a failed gh call then fails the run, not reads as an open issue.
+          open=$(gh issue list --state open --search "\"upstream $latest\" in:title" --json number --jq length)
+          [ "$open" != 0 ] && exit 0
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -56,6 +59,9 @@ jobs:
           gh pr create --base "$BASE" --head "$branch" --title "upstream $latest" --body "Upstream changes: https://github.com/democratic-csi/democratic-csi/compare/$current...$latest
 
           Merge with a merge commit, not squash or rebase: the next sync merges on top of upstream's history.
-          The master build then publishes ghcr.io/$GITHUB_REPOSITORY:$latest-epheo.N."
+          The master build then publishes ghcr.io/$GITHUB_REPOSITORY:$latest-epheo.N.
+
+          CI: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/workflows/fork.yml?query=branch%3A$branch
+          It does not show as checks here: PRs opened with GITHUB_TOKEN start none. Close and reopen this PR to run them on it."
           # PRs opened with GITHUB_TOKEN start no workflows.
           gh workflow run fork.yml --ref "$branch"
