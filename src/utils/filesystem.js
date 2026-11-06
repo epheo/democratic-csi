@@ -49,15 +49,18 @@ class Filesystem {
       return false;
     }
 
-    const device_path = await filesystem.realpath(device);
-    const blockdevices = await filesystem.getAllBlockDevices();
-
-    return blockdevices.some(async (i) => {
-      if ((await filesystem.realpath(i.path)) == device_path) {
-        return true;
+    // stat follows /dev/disk/by-* links and sees device nodes bind-mounted
+    // onto files (raw block publish); a device gone with its iscsi session is
+    // not a block device anymore, so unstage just unmounts it
+    try {
+      return (await fs.promises.stat(device)).isBlockDevice();
+    } catch (err) {
+      // ENOTDIR: a path under a raw block target, which is a file
+      if (["ENOENT", "ENOTDIR"].includes(err.code)) {
+        return false;
       }
-      return false;
-    });
+      throw err;
+    }
   }
 
   /**

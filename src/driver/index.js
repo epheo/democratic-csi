@@ -2629,6 +2629,22 @@ class CsiBaseDriver {
           }
         }
 
+        // logging out of iscsi under a mounted filesystem shuts it down and
+        // loses unwritten data: check the staging path is gone and that no
+        // other mount (a leftover publish, a manual mount) still uses the device
+        if (await mount.pathIsMounted(normalized_staging_path)) {
+          throw new GrpcError(
+            grpc.status.INTERNAL,
+            `${normalized_staging_path} is still mounted after umount`
+          );
+        }
+        if (is_block && (await mount.deviceIsMounted(block_device_info.path))) {
+          throw new GrpcError(
+            grpc.status.FAILED_PRECONDITION,
+            `${block_device_info.path} is still mounted elsewhere, not detaching it`
+          );
+        }
+
         if (is_block) {
           let breakdeviceloop = false;
           let realBlockDeviceInfos = [];

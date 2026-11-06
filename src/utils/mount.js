@@ -146,7 +146,7 @@ class Mount {
       } else if (
         err.code == 32 &&
         err.stderr &&
-        err.stderr.contains("No such file or directory")
+        err.stderr.includes("No such file or directory")
       ) {
         return false;
       } else {
@@ -417,7 +417,11 @@ class Mount {
     try {
       await mount.exec(mount.options.paths.umount, args);
     } catch (err) {
-      if (err.code == 32) {
+      // util-linux exits 32 for every umount failure, "target is busy" included
+      if (
+        err.code == 32 &&
+        /not mounted|no mount point specified/.test(err.stderr || "")
+      ) {
         return true;
       } else {
         throw err;
