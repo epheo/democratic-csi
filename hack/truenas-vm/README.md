@@ -50,6 +50,7 @@ hack/truenas-vm/node-create.sh                    # once; needs setup.sh's ssh k
 virsh start truenas-csi-test; virsh start csi-node-test
 hack/truenas-vm/node-sanity.sh ghcr.io/epheo/democratic-csi:master iscsi
 hack/truenas-vm/node-sanity.sh localhost/dcsi:test nfs   # local images are copied over
+hack/truenas-vm/node-checks.sh <image>            # NodeUnstage: leftover mount, busy mount, device gone
 hack/truenas-vm/node-clean.sh                     # leftover mounts and sessions
 ```
 
