@@ -185,6 +185,19 @@ class ControllerZfsBaseDriver extends CsiBaseDriver {
     return datasetParentName;
   }
 
+  /**
+   * ids end up unquoted in shell commands over ssh (ZfsSshProcessManager),
+   * so restrict them to zfs name characters; space would split arguments
+   */
+  assertZfsSafeId(id, field) {
+    if (id && !/^[a-z0-9_.:+@\/-]+$/i.test(id)) {
+      throw new GrpcError(
+        grpc.status.INVALID_ARGUMENT,
+        `${field} contains invalid characters: ${id}`
+      );
+    }
+  }
+
   getDetachedSnapshotParentDatasetName() {
     //let datasetParentName = this.getDatasetParentName();
     let datasetParentName = this.options.zfs.detachedSnapshotsDatasetParentName;
@@ -706,6 +719,14 @@ class ControllerZfsBaseDriver extends CsiBaseDriver {
     let name = call.request.name;
     let volume_id = await driver.getVolumeIdFromCall(call);
     let volume_content_source = call.request.volume_content_source;
+    this.assertZfsSafeId(
+      _.get(volume_content_source, "snapshot.snapshot_id"),
+      "volume_content_source snapshot_id"
+    );
+    this.assertZfsSafeId(
+      _.get(volume_content_source, "volume.volume_id"),
+      "volume_content_source volume_id"
+    );
 
     if (!datasetParentName) {
       throw new GrpcError(
@@ -1346,6 +1367,7 @@ class ControllerZfsBaseDriver extends CsiBaseDriver {
 
     let datasetParentName = this.getVolumeParentDatasetName();
     let name = call.request.volume_id;
+    this.assertZfsSafeId(name, "volume_id");
 
     if (!datasetParentName) {
       throw new GrpcError(
@@ -1516,6 +1538,7 @@ class ControllerZfsBaseDriver extends CsiBaseDriver {
 
     let datasetParentName = this.getVolumeParentDatasetName();
     let name = call.request.volume_id;
+    this.assertZfsSafeId(name, "volume_id");
 
     if (!datasetParentName) {
       throw new GrpcError(
@@ -1687,6 +1710,7 @@ class ControllerZfsBaseDriver extends CsiBaseDriver {
     let datasetParentName = this.getVolumeParentDatasetName();
     let response;
     let name = call.request.volume_id;
+    this.assertZfsSafeId(name, "volume_id");
 
     if (!datasetParentName) {
       throw new GrpcError(
@@ -1963,6 +1987,8 @@ class ControllerZfsBaseDriver extends CsiBaseDriver {
 
     let snapshot_id = call.request.snapshot_id;
     let source_volume_id = call.request.source_volume_id;
+    this.assertZfsSafeId(snapshot_id, "snapshot_id");
+    this.assertZfsSafeId(source_volume_id, "source_volume_id");
 
     entries = [];
     for (let loopType of ["snapshot", "filesystem"]) {
@@ -2203,6 +2229,7 @@ class ControllerZfsBaseDriver extends CsiBaseDriver {
 
     // both these are required
     let source_volume_id = call.request.source_volume_id;
+    this.assertZfsSafeId(source_volume_id, "source_volume_id");
     let name = call.request.name;
 
     if (!source_volume_id) {
@@ -2484,6 +2511,7 @@ class ControllerZfsBaseDriver extends CsiBaseDriver {
     const driverOptions = driver.getMergedDriverOptions([]);
 
     const snapshot_id = call.request.snapshot_id;
+    this.assertZfsSafeId(snapshot_id, "snapshot_id");
 
     if (!snapshot_id) {
       throw new GrpcError(
@@ -2556,6 +2584,7 @@ class ControllerZfsBaseDriver extends CsiBaseDriver {
     const driverOptions = driver.getMergedDriverOptions([]);
 
     const volume_id = call.request.volume_id;
+    this.assertZfsSafeId(volume_id, "volume_id");
     if (!volume_id) {
       throw new GrpcError(grpc.status.INVALID_ARGUMENT, `missing volume_id`);
     }

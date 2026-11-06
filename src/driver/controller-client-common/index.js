@@ -250,12 +250,34 @@ class ControllerClientCommonDriver extends CsiBaseDriver {
     return this.getShareBasePath() + this.getSnapshotExtraPath();
   }
 
+  /**
+   * ids come from the request and are joined into paths that get
+   * rm -rf'd or rsync'd; a "/" or ".." would escape the share
+   */
+  assertPathSegment(id, field) {
+    if (!id || id == "." || id == ".." || /[\/\\\0]/.test(id)) {
+      throw new GrpcError(
+        grpc.status.INVALID_ARGUMENT,
+        `invalid ${field}: ${id}`
+      );
+    }
+    return id;
+  }
+
   getShareVolumePath(volume_id) {
-    return this.getShareVolumeBasePath() + "/" + volume_id;
+    return (
+      this.getShareVolumeBasePath() +
+      "/" +
+      this.assertPathSegment(volume_id, "volume_id")
+    );
   }
 
   getShareSnapshotPath(snapshot_id) {
-    return this.getShareSnapshotBasePath() + "/" + snapshot_id;
+    return (
+      this.getShareSnapshotBasePath() +
+      "/" +
+      this.assertPathSegment(snapshot_id, "snapshot_id")
+    );
   }
 
   getControllerVolumeBasePath() {
@@ -267,11 +289,19 @@ class ControllerClientCommonDriver extends CsiBaseDriver {
   }
 
   getControllerVolumePath(volume_id) {
-    return this.getControllerVolumeBasePath() + "/" + volume_id;
+    return (
+      this.getControllerVolumeBasePath() +
+      "/" +
+      this.assertPathSegment(volume_id, "volume_id")
+    );
   }
 
   getControllerSnapshotPath(snapshot_id) {
-    return this.getControllerSnapshotBasePath() + "/" + snapshot_id;
+    return (
+      this.getControllerSnapshotBasePath() +
+      "/" +
+      this.assertPathSegment(snapshot_id, "snapshot_id")
+    );
   }
 
   async getDirectoryUsage(path) {
