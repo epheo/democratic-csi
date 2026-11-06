@@ -20,7 +20,7 @@ on:
       - LICENSE
       - package*.json
       - src/**
-      - Dockerfile
+      - Dockerfile.centos
       - .dockerignore
   # upstream-sync.yml runs CI on its branches this way
   workflow_dispatch:
