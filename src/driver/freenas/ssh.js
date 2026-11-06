@@ -1820,6 +1820,15 @@ class FreeNASSshDriver extends ControllerZfsBaseDriver {
 
                 // assume share is gone for now
                 if ([404, 500].includes(response.statusCode)) {
+                } else if (response.statusCode != 200) {
+                  // e.g. 401 after a credential change: the body has no name
+                  // or paths to match, which used to skip the delete silently
+                  throw new GrpcError(
+                    grpc.status.UNKNOWN,
+                    `received error looking up ${endpoint} - code: ${
+                      response.statusCode
+                    } body: ${JSON.stringify(response.body)}`
+                  );
                 } else {
                   switch (apiVersion) {
                     case 1:
@@ -1928,6 +1937,15 @@ class FreeNASSshDriver extends ControllerZfsBaseDriver {
 
                 // assume share is gone for now
                 if ([404, 500].includes(response.statusCode)) {
+                } else if (response.statusCode != 200) {
+                  // e.g. 401 after a credential change: the body has no name
+                  // or paths to match, which used to skip the delete silently
+                  throw new GrpcError(
+                    grpc.status.UNKNOWN,
+                    `received error looking up ${endpoint} - code: ${
+                      response.statusCode
+                    } body: ${JSON.stringify(response.body)}`
+                  );
                 } else {
                   switch (apiVersion) {
                     case 1:
@@ -2051,6 +2069,15 @@ class FreeNASSshDriver extends ControllerZfsBaseDriver {
 
                 // assume is gone for now
                 if ([404, 500].includes(response.statusCode)) {
+                } else if (response.statusCode != 200) {
+                  // e.g. 401 after a credential change: the body has no name
+                  // or paths to match, which used to skip the delete silently
+                  throw new GrpcError(
+                    grpc.status.UNKNOWN,
+                    `received error looking up ${endpoint} - code: ${
+                      response.statusCode
+                    } body: ${JSON.stringify(response.body)}`
+                  );
                 } else {
                   deleteAsset = true;
                   assetName = null;
@@ -2136,6 +2163,15 @@ class FreeNASSshDriver extends ControllerZfsBaseDriver {
 
                 // assume is gone for now
                 if ([404, 500].includes(response.statusCode)) {
+                } else if (response.statusCode != 200) {
+                  // e.g. 401 after a credential change: the body has no name
+                  // or paths to match, which used to skip the delete silently
+                  throw new GrpcError(
+                    grpc.status.UNKNOWN,
+                    `received error looking up ${endpoint} - code: ${
+                      response.statusCode
+                    } body: ${JSON.stringify(response.body)}`
+                  );
                 } else {
                   deleteAsset = true;
                   assetName = null;
