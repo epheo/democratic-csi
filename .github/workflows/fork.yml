@@ -1,4 +1,4 @@
-# CI for the epheo fork: unit tests on every PR, amd64 image to ghcr.io on master and tags.
+# CI for the epheo fork: unit tests on every PR, amd64 image (Dockerfile.centos) to ghcr.io on master and tags.
 # Hosted runners only: a self-hosted runner on a public repo would run any PR's code.
 # Not pushed to an in-cluster registry: that registry's storage would come from this driver.
 name: fork CI
@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
       - run: npm ci
       - run: npm test
@@ -72,12 +72,22 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: Dockerfile.centos
           platforms: linux/amd64
           push: ${{ github.event_name == 'push' }}
+          load: ${{ github.event_name != 'push' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      # the app loads every driver, native modules included, before parsing args
+      - name: smoke test
+        if: github.event_name != 'push'
+        env:
+          IMAGE: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+        run: |
+          docker run --rm "$IMAGE" --version
+          docker run --rm --entrypoint sh "$IMAGE" -c 'for t in mkfs.xfs mkfs.ext4 xfs_growfs resize2fs mount.nfs blkid lsblk findmnt; do command -v $t >/dev/null || { echo "missing $t"; exit 1; }; done'
       - if: github.event_name == 'push'
         run: echo "pin as ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
 
