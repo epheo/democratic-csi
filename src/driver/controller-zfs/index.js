@@ -1280,7 +1280,7 @@ class ControllerZfsBaseDriver extends CsiBaseDriver {
         if (
           (typeof driverOptions.zfs.zvolCompression === "string" ||
             driverOptions.zfs.zvolCompression instanceof String) &&
-          driverOptions.zfs.zvolCompression > 0
+          driverOptions.zfs.zvolCompression.length > 0
         ) {
           properties.compression = driverOptions.zfs.zvolCompression;
         }
