@@ -119,6 +119,9 @@ jobs:
       DIGEST: ${{ needs.image.outputs.digest }}
     steps:
       - run: |
-          gh release view "$TAG" >/dev/null 2>&1 && exit 0
-          gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" --generate-notes \
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --latest=false \
+            --target "$GITHUB_SHA" --title "$TAG" --generate-notes \
             --notes "$(printf 'Image: `%s`\n\nPin by digest: `%s`\n' "$IMAGE:$TAG" "$IMAGE@$DIGEST")"
+          # builds of quick successive merges finish in any order: Latest goes to the highest version
+          latest=$(gh release list --limit 100 --json tagName --jq '.[].tagName' | grep -- '-epheo\.' | sort -V | tail -1)
+          gh release edit "$latest" --latest
