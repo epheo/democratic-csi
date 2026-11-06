@@ -1,0 +1,61 @@
+# Opens a PR merging each new upstream release tag into the fork.
+# Merge, not rebase: master is shared history, and image tags count its commits.
+name: upstream sync
+
+on:
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+
+concurrency: upstream-sync
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      UPSTREAM: https://github.com/democratic-csi/democratic-csi.git
+      BASE: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: merge the newest upstream release
+        run: |
+          current=$(cat .upstream-version)
+          latest=$(git ls-remote --tags --refs "$UPSTREAM" 'v*' | sed 's|.*refs/tags/||' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          echo "$BASE is based on $current, upstream latest is $latest"
+          [ "$(printf '%s\n' "$current" "$latest" | sort -V | tail -1)" = "$current" ] && exit 0
+
+          # One try per release: delete the branch, or close the issue, to retry.
+          branch="upstream/$latest"
+          git ls-remote --exit-code --heads origin "$branch" >/dev/null && exit 0
+          [ "$(gh issue list --state open --search "\"upstream $latest\" in:title" --json number --jq length)" != 0 ] && exit 0
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch -q --no-tags "$UPSTREAM" "refs/tags/$latest:refs/tags/$latest"
+          git switch -q -c "$branch"
+          if ! git merge --no-ff --no-edit -m "merge upstream $latest" "$latest"; then
+            conflicts=$(git diff --name-only --diff-filter=U | tr '\n' ' ')
+            git merge --abort
+            gh issue create --title "upstream $latest: merge conflicts" \
+              --body "Merging upstream $latest into $BASE conflicts in: $conflicts. Merge it by hand, or close this issue to retry."
+            exit 0
+          fi
+          echo "$latest" > .upstream-version
+          git commit -qam "upstream: base on $latest"
+          git push -q origin "$branch"
+          gh pr create --base "$BASE" --head "$branch" --title "upstream $latest" --body "Upstream changes: https://github.com/democratic-csi/democratic-csi/compare/$current...$latest
+
+          Merge with a merge commit, not squash or rebase: the next sync merges on top of upstream's history.
+          The master build then publishes ghcr.io/$GITHUB_REPOSITORY:$latest-epheo.N."
+          # PRs opened with GITHUB_TOKEN start no workflows.
+          gh workflow run fork.yml --ref "$branch"
