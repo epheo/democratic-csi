@@ -1,10 +1,7 @@
 const Client = require("ssh2").Client;
-const { E_CANCELED, Mutex } = require("async-mutex");
-const GeneralUtils = require("./general");
 
 class SshClient {
   constructor(options = {}) {
-    const client = this;
     this.options = options;
     this.options.connection = this.options.connection || {};
     if (this.options.logger) {
@@ -19,39 +16,13 @@ class SshClient {
     }
 
     if (this.options.connection.debug === true) {
-      this.options.connection.debug = function (msg) {
-        client.debug(msg);
+      this.options.connection.debug = (msg) => {
+        this.debug(msg);
       };
     }
 
-    this.conn_mutex = new Mutex();
-    this.conn_state;
-    this.conn_err;
-    this.ready_event_count = 0;
-    this.error_event_count = 0;
-
-    this.conn = new Client();
-    // invoked before close
-    this.conn.on("end", () => {
-      this.conn_state = "ended";
-      this.debug("Client :: end");
-    });
-    // invoked after end
-    this.conn.on("close", () => {
-      this.conn_state = "closed";
-      this.debug("Client :: close");
-    });
-    this.conn.on("error", (err) => {
-      this.conn_state = "error";
-      this.conn_err = err;
-      this.error_event_count++;
-      this.debug("Client :: error");
-    });
-    this.conn.on("ready", () => {
-      this.conn_state = "ready";
-      this.ready_event_count++;
-      this.debug("Client :: ready");
-    });
+    // promise of the shared ready ssh2 Client, null when none is usable
+    this.conn = null;
   }
 
   /**
@@ -70,177 +41,136 @@ class SshClient {
     this.logger.silly(...arguments);
   }
 
-  async _connect() {
-    const start_ready_event_count = this.ready_event_count;
-    const start_error_event_count = this.error_event_count;
-    try {
-      await this.conn_mutex.runExclusive(async () => {
-        this.conn.connect(this.options.connection);
-        do {
-          if (start_error_event_count != this.error_event_count) {
-            throw this.conn_err;
-          }
-
-          if (start_ready_event_count != this.ready_event_count) {
-            break;
-          }
-
-          await GeneralUtils.sleep(100);
-        } while (true);
-      });
-    } catch (err) {
-      if (err === E_CANCELED) {
-        return;
-      }
-      throw err;
-    }
+  /**
+   * Opens a new connection; resolves to the ssh2 Client once ready.
+   *
+   * Never reuse an ssh2 Client: its connect() on a live socket sends
+   * DISCONNECT before the ident (sshd logs "banner exchange: invalid format"),
+   * and a reused Client re-emits close events of its previous socket.
+   *
+   * @param {*} onGone called when the connection errors or closes
+   */
+  _open(onGone = () => {}) {
+    return new Promise((resolve, reject) => {
+      const client = new Client();
+      const gone = (err) => {
+        reject(err);
+        onGone();
+      };
+      client
+        .on("ready", () => {
+          this.debug("Client :: ready");
+          resolve(client);
+        })
+        .on("error", (err) => {
+          this.debug("Client :: error");
+          gone(err);
+        })
+        .on("end", () => {
+          this.debug("Client :: end");
+        })
+        .on("close", () => {
+          this.debug("Client :: close");
+          gone(new Error("ssh connection closed"));
+        });
+      client.connect(this.options.connection);
+    });
   }
 
-  async connect() {
-    if (this.conn_state == "ready") {
-      return;
+  /**
+   * Concurrent callers share one connection attempt.
+   */
+  connect() {
+    if (!this.conn) {
+      const drop = () => {
+        if (this.conn === conn) {
+          this.conn = null;
+        }
+      };
+      const conn = this._open(drop);
+      // ssh2 throws synchronously on bad config, before onGone can be wired
+      conn.catch(drop);
+      this.conn = conn;
     }
-
-    return this._connect();
+    return this.conn;
   }
 
   async exec(command, options = {}, stream_proxy = null) {
     // default is to reuse
     if (process.env.SSH_REUSE_CONNECTION == "0") {
-      return this._nexec(...arguments);
-    } else {
-      return this._rexec(...arguments);
+      const conn = await this._open();
+      try {
+        return await this._run(conn, command, options, stream_proxy);
+      } finally {
+        conn.end();
+      }
+    }
+
+    for (let attempt = 0; ; attempt++) {
+      const pending = this.connect();
+      const conn = await pending;
+      try {
+        return await this._run(conn, command, options, stream_proxy);
+      } catch (err) {
+        if (attempt > 0 || !String(err.message).includes("Not connected")) {
+          throw err;
+        }
+        // socket ended before its close event dropped the cached connection
+        if (this.conn === pending) {
+          this.conn = null;
+        }
+      }
     }
   }
 
-  async _rexec(command, options = {}, stream_proxy = null) {
-    const client = this;
-    const conn = this.conn;
-
-    return new Promise(async (resolve, reject) => {
-      do {
-        try {
-          await this.connect();
-          conn.exec(command, options, function (err, stream) {
-            if (err) {
-              reject(err);
-              return;
-            }
-            let stderr;
-            let stdout;
-
-            if (stream_proxy) {
-              stream_proxy.on("kill", (signal) => {
-                stream.destroy();
-              });
-            }
-
-            stream
-              .on("close", function (code, signal) {
-                client.debug(
-                  "Stream :: close :: code: " + code + ", signal: " + signal
-                );
-                if (stream_proxy) {
-                  stream_proxy.emit("close", ...arguments);
-                }
-                resolve({ stderr, stdout, code, signal });
-                //conn.end();
-              })
-              .on("data", function (data) {
-                client.debug("STDOUT: " + data);
-                if (stream_proxy) {
-                  stream_proxy.stdout.emit("data", ...arguments);
-                }
-                if (stdout == undefined) {
-                  stdout = "";
-                }
-                stdout = stdout.concat(data);
-              })
-              .stderr.on("data", function (data) {
-                client.debug("STDERR: " + data);
-                if (stream_proxy) {
-                  stream_proxy.stderr.emit("data", ...arguments);
-                }
-                if (stderr == undefined) {
-                  stderr = "";
-                }
-                stderr = stderr.concat(data);
-              });
-          });
-          break;
-        } catch (err) {
-          if (err.message && !err.message.includes("Not connected")) {
-            throw err;
-          }
-        }
-        await GeneralUtils.sleep(1000);
-      } while (true);
-    });
-  }
-
-  async _nexec(command, options = {}, stream_proxy = null) {
+  _run(conn, command, options, stream_proxy) {
     const client = this;
     return new Promise((resolve, reject) => {
-      var conn = new Client();
-
-      conn
-        .on("error", function (err) {
-          client.debug("Client :: error");
+      conn.exec(command, options, function (err, stream) {
+        if (err) {
           reject(err);
-        })
-        .on("ready", function () {
-          client.debug("Client :: ready");
-          //options.pty = true;
-          //options.env = {
-          //  TERM: "",
-          //};
-          conn.exec(command, options, function (err, stream) {
-            if (err) {
-              reject(err);
-              return;
-            }
-            let stderr;
-            let stdout;
-            stream
-              .on("close", function (code, signal) {
-                client.debug(
-                  "Stream :: close :: code: " + code + ", signal: " + signal
-                );
-                if (stream_proxy) {
-                  stream_proxy.emit("close", ...arguments);
-                }
-                resolve({ stderr, stdout, code, signal });
-                conn.end();
-              })
-              .on("data", function (data) {
-                client.debug("STDOUT: " + data);
-                if (stream_proxy) {
-                  stream_proxy.stdout.emit("data", ...arguments);
-                }
-                if (stdout == undefined) {
-                  stdout = "";
-                }
-                stdout = stdout.concat(data);
-              })
-              .stderr.on("data", function (data) {
-                client.debug("STDERR: " + data);
-                if (stream_proxy) {
-                  stream_proxy.stderr.emit("data", ...arguments);
-                }
-                if (stderr == undefined) {
-                  stderr = "";
-                }
-                stderr = stderr.concat(data);
-              });
-          });
-        })
-        .connect(client.options.connection);
+          return;
+        }
+        let stderr;
+        let stdout;
 
-      if (stream_proxy) {
-        stream_proxy.on("kill", (signal) => {
-          conn.end();
-        });
-      }
+        if (stream_proxy) {
+          stream_proxy.on("kill", (signal) => {
+            stream.destroy();
+          });
+        }
+
+        stream
+          .on("close", function (code, signal) {
+            client.debug(
+              "Stream :: close :: code: " + code + ", signal: " + signal
+            );
+            if (stream_proxy) {
+              stream_proxy.emit("close", ...arguments);
+            }
+            resolve({ stderr, stdout, code, signal });
+          })
+          .on("data", function (data) {
+            client.debug("STDOUT: " + data);
+            if (stream_proxy) {
+              stream_proxy.stdout.emit("data", ...arguments);
+            }
+            if (stdout == undefined) {
+              stdout = "";
+            }
+            stdout = stdout.concat(data);
+          })
+          .stderr.on("data", function (data) {
+            client.debug("STDERR: " + data);
+            if (stream_proxy) {
+              stream_proxy.stderr.emit("data", ...arguments);
+            }
+            if (stderr == undefined) {
+              stderr = "";
+            }
+            stderr = stderr.concat(data);
+          });
+      });
     });
   }
 }
