@@ -106,7 +106,8 @@ class CsiBaseDriver {
 
   getMergedDriverOptions(optionOverlays = []) {
     const driver = this;
-    let driverOptions = Object.assign({}, driver.options);
+    // overlays are per call; a shallow copy would write them into driver.options.zfs
+    let driverOptions = _.cloneDeep(driver.options);
 
     const allowedOptionsOverrides = ["zfs.zvolBlocksize"];
 
